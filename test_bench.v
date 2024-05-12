@@ -147,7 +147,7 @@ module test_bench
   wire [15:0]x_dat;
 
   reg clk = 0;
-  reg [13:0] adc_data; // Assuming 14-bit ADC data width
+  reg [13:0] adc_data;
   reg adc_valid = 1'b0; // Start with invalid data
   always #100 clk = ~clk;
   initial begin
@@ -156,17 +156,11 @@ module test_bench
         adc_valid = 1'b1; // Start providing valid data
         
         // Simulate ADC data
-        adc_data = 14'h123; // Example ADC data
+        adc_data = 14'h123; 
         #100; // Simulate for some time
-        
-        // More test sequences...
+
     end
-    //wire led;
-//  system (
-//      .adc_clk_p_i(clk),
-//      .adc_clk_n_i(~clk)
-//      //.led(led)
-//  );
+
   system system_i
        (.DDR_addr(DDR_addr),
         .DDR_ba(DDR_ba),
