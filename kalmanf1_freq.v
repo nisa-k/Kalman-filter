@@ -23,7 +23,7 @@
 
 module kalmanf1
 #(
-    parameter M_PI = 3.14159265358979323846,
+    parameter M_PI = 34'b11_00100011110101110000101000111101,
     parameter ADC_WIDTH = 14,
     parameter AXIS_TDATA_WIDTH = 32,
     parameter COUNT_WIDTH = 32,
@@ -31,19 +31,20 @@ module kalmanf1
     parameter LOW_THRESHOLD = -150,
     parameter INTEGER_BITS = 0,       // Number of integer bits for T_s
     parameter FRACTIONAL_BITS = 24,   // Number of fractional bits for T_s
-    parameter x_init = 1e-6,  // initial guess for x_0|0 (units of power)
-    parameter x0 = 1.2e-6, // initial guess for the current state 0 (units of power)
-    parameter T_s = 1e-5,  // sampling time (s)=10 microsec
-    parameter tau = 1e-3, // lock-in rolloff time (1/f)
-    parameter omega = 6283.185307, // 2*M_PI/tau
-    parameter oT = 0.06283185307, //omega*T_s
-    parameter phi = 1.062831853, //1+omega*T_s
-    parameter phi_sq = 1.129611548, //phi^2
-    parameter d_var = 9e-4, //(V^2)
-    parameter o_prime = 628318.5307, // 2pi*f=2pi*100kHz
+    parameter x_init = 32'b0_00000000000000000001000011000110,  // initial guess for x_0|0 (units of power)
+    parameter x0 = 34'b0_0000000000000000000101000010000111, // initial guess for the current state 0 (units of power)
+    parameter e_pre_var0 = 64'b0_0000000000000000001000011000110111101111010000010110101111011011, //x0-x_init, 2*1e-6
+    parameter T_s = 32'b0_00000000000000001010011111000101,  // sampling time (s)=10 microsec
+    parameter tau = 32'b0_00000000010000011000100100110111, // lock-in rolloff time (1/f)
+    parameter omega = 64'b1100010001011_001011110111000001000111100100001011100001001001100, // 2*M_PI/tau
+    parameter oT = 64'b0_0001000000010101101111111001001000010101001011011001110000010100, //omega*T_s
+    parameter phi = 64'b1_0001000000010101101111111001000111001000001101100101110001111111, //1+omega*T_s
+    parameter phi_sq = 64'b1_0010000100101110001110001110111111011000000011000001001001111111, //phi^2
+    parameter d_var = 64'b0_0000000000111010111110110111111010010000111111111001011100100100, //(V^2)
+    parameter o_prime = 64'b10011001011001011110_10000111110110111111010010000111111111, // 2pi*f=2pi*100kHz
     parameter g_0 = 'd0023,
-    parameter k_omega = 4.347826087, //o_prime/(g_0*omega) control law
-    parameter s_var = 1.27407e-5 // process and measurement noise (units of power (V^2))
+    parameter k_omega = 64'b100_0101100100001011001000010110010001011100010100111001101110010001, //o_prime/(g_0*omega) control law
+    parameter s_var = 64'b0_0010000010011101101111101100001001001000000011101000110010001010 // process and measurement noise (units of power (V^2))
 )
 (
     (* X_INTERFACE_PARAMETER = "FREQ_HZ 125000000" *)
@@ -139,51 +140,47 @@ module kalmanf1
         end
     end
     
-    initial begin
-        y_init = y_measured;
-        assign x_next1 = phi*x_init;
-        x_next2 = k_omega*y_init;
-        assign x_next = x_next1 - oT*x_next2; // predict the next state x_n
-        assign e_pre_var = x0 - x_init; // make sure this is a positive number
-    end
-    
-
-    always@(*) begin           
-        y = y_measured;
-        u = -oT*k_omega*y;
-        
-        K_next_num = (phi_sq*e_pre_var + d_var);
-        K_next_denum = (phi_sq*e_pre_var + d_var + s_var);
-        K_next = K_next_num / K_next_denum;
-        
-        x_curr1 = (1-K_next)*x_next;
-        x_curr2 = K_next*y;
-        x_curr = x_curr1 + x_curr2; // estimate the current state
-        
-        x_next = phi*x_curr + u; // predict the next state
-        
-        //e_next_var = (1-K_next)*(1-K_next)*(phi*phi*e_pre_var + d_var) + K_next*K_next*s_var;
-        one_K_next_sq = (1-K_next)*(1-K_next);
-        K_next_sq = K_next*K_next;
-        e_next_var1 = one_K_next_sq*K_next_num;
-        e_next_var2 = K_next_sq*s_var;
-        e_next_var = e_next_var1 + e_next_var2;
-        
-        // make the next values the old values for next cycle
-        K_pre = K_next;
-        e_pre_var = e_next_var;
-    end
      
     always@(posedge clk) begin
-        if (counter_eq_1024) begin // decimation factor is 1024
+        if (counter == 1) begin
+                y_init = y_measured;
+                x_next1 = phi*x_init;
+                x_next2 = k_omega*y_init;
+                x_next = x_next1 - oT*x_next2; // predict the next state x_n
+                e_pre_var = e_pre_var0; // make sure this is a positive number   
+        end
             
-            y <= y_measured;
+        if (counter_eq_1024) begin    
+            y = y_measured;
+            u = -oT*k_omega*y;
+            
+            K_next_num = (phi_sq*e_pre_var + d_var);
+            K_next_denum = (phi_sq*e_pre_var + d_var + s_var);
+            K_next = K_next_num / K_next_denum;
+            
+            x_curr1 = (1-K_next)*x_next;
+            x_curr2 = K_next*y;
+            x_curr = x_curr1 + x_curr2; // estimate the current state
+            
+            x_next = phi*x_curr + u; // predict the next state
+            
+            //e_next_var = (1-K_next)*(1-K_next)*(phi*phi*e_pre_var + d_var) + K_next*K_next*s_var;
+            one_K_next_sq = (1-K_next)*(1-K_next);
+            K_next_sq = K_next*K_next;
+            e_next_var1 = one_K_next_sq*K_next_num;
+            e_next_var2 = K_next_sq*s_var;
+            e_next_var = e_next_var1 + e_next_var2;
+            
+            // make the next values the old values for next cycle
+            K_pre = K_next;
+            e_pre_var = e_next_var;
+            
             
             // Assign the calculated value to the output signal
-            x_n <= x_next;
+            x_n = x_next;
             
             // Store sampled data in memory
-            x_data <= x_next;
+            x_data = x_next;
             
         end
     end
