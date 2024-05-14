@@ -38,12 +38,12 @@ module kalmanf1
     parameter tau = 32'b0_00000000010000011000100100110111, // lock-in rolloff time (1/f)
     parameter omega = 64'b1100010001011_001011110111000001000111100100001011100001001001100, // 2*M_PI/tau
     parameter oT = 64'b0_0001000000010101101111111001001000010101001011011001110000010100, //omega*T_s
-    parameter phi = 64'b1_0001000000010101101111111001000111001000001101100101110001111111, //1+omega*T_s
-    parameter phi_sq = 64'b1_0010000100101110001110001110111111011000000011000001001001111111, //phi^2
+    parameter phi = 64'b1_000100000001010110111111100100011100100000110110010111000111111, //1+omega*T_s
+    parameter phi_sq = 64'b1_00100001001011100011100011101111110110000000110000010010011111, //phi^2
     parameter d_var = 64'b0_0000000000111010111110110111111010010000111111111001011100100100, //(V^2)
-    parameter o_prime = 64'b10011001011001011110_10000111110110111111010010000111111111, // 2pi*f=2pi*100kHz
+    parameter o_prime = 64'b10011001011001011110_10000111110110111111010010000111111111001011, // 2pi*f=2pi*100kHz
     parameter g_0 = 'd0023,
-    parameter k_omega = 64'b100_0101100100001011001000010110010001011100010100111001101110010001, //o_prime/(g_0*omega) control law
+    parameter k_omega = 64'b100_0101100100001011001000010110010001011100010100111001101110010, //o_prime/(g_0*omega) control law
     parameter s_var = 64'b0_0010000010011101101111101100001001001000000011101000110010001010 // process and measurement noise (units of power (V^2))
 )
 (
@@ -53,13 +53,17 @@ module kalmanf1
     input                          clk,
     input                          rst,
     input [COUNT_WIDTH-1:0]        Ncycles,
-	output reg [COUNT_WIDTH-1:0]   x_n,  
+    input                          K_next_in,
+    output reg                     M_AXIS_OUT_tvalid,
+    output reg                     K_next_num,
+    output reg                     K_next_denom,
+    output reg [COUNT_WIDTH-1:0]   x_n,  
     output reg [15:0]              x_data
 );
     
     wire signed [ADC_WIDTH-1:0]    y_measured;
     reg                            state, state_next;
-    reg [COUNT_WIDTH-1:0]          counter=0, counter_next=0;
+    reg [COUNT_WIDTH-1:0]          counter=0, counter_next=0, counter1024=0, counter1024_next=0;
     reg [COUNT_WIDTH-1:0]          counter_output=0, counter_output_next=0;
     reg [COUNT_WIDTH-1:0]          cycle=0, cycle_next=0;
     
@@ -95,11 +99,13 @@ module kalmanf1
         begin
             counter <= 0;
             counter_output <= 0;
+            // counter1024 <= 0;
             cycle <= 0;
         end
         else
         begin
             counter <= counter_next;
+            counter1024 <= counter1024_next;
             counter_output <= counter_output_next;
             cycle <= cycle_next;
         end
@@ -109,6 +115,7 @@ module kalmanf1
     always @* // logic for counter, counter_output, and cycle buffer
     begin
         counter_next = counter + 1; // increment on each clock cycle
+        counter1024_next = counter1024 + 1;
         counter_output_next = counter_output;
         cycle_next = cycle;
         
@@ -118,6 +125,7 @@ module kalmanf1
             if (cycle >= Ncycles-1) 
             begin
                 counter_next = 0;
+                counter1024_next = 0;
                 counter_output_next = counter;
                 cycle_next = 0;
             end
@@ -128,21 +136,24 @@ module kalmanf1
     reg [31:0] y, y_init, u; 
     reg [31:0] x_curr, x_curr1, x_curr2, x_next, x_next1, x_next2;
     reg [31:0] e_pre_var, e_next_var, e_next_var1, e_next_var2;
-    reg [31:0] K_pre, K_next_num, K_next_denum, K_next, one_K_next_sq, K_next_sq; // kalman gain
+    reg [31:0] K_pre, one_K_next_sq, K_next_sq; // kalman gain
     
     reg [1:0] counter_eq_1024;
 
     always @ (posedge clk) begin
-        if ((counter%1024) == 0) begin
-            counter_eq_1024 <= 1'b1;
+        if (counter1024 == 1024) begin
+            counter_eq_1024 = 1'b1;
+            counter1024 = 1'b0;
+            counter1024_next = 1'b0;     
         end else begin
-            counter_eq_1024 <= 1'b0;
+            counter_eq_1024 = 1'b0;
         end
     end
-    
+      
      
     always@(posedge clk) begin
-        if (counter == 1) begin
+    
+        if (counter == 0) begin
                 y_init = y_measured;
                 x_next1 = phi*x_init;
                 x_next2 = k_omega*y_init;
@@ -150,14 +161,17 @@ module kalmanf1
                 e_pre_var = e_pre_var0; // make sure this is a positive number   
         end
             
-        if (counter_eq_1024) begin    
+        if (counter_eq_1024) begin             
+             
             y = y_measured;
             u = -oT*k_omega*y;
             
             K_next_num = (phi_sq*e_pre_var + d_var);
-            K_next_denum = (phi_sq*e_pre_var + d_var + s_var);
-            K_next = K_next_num / K_next_denum;
-            
+            K_next_denom = (phi_sq*e_pre_var + d_var + s_var);
+//            K_next = K_next_num / K_next_denom;
+	    M_AXIS_OUT_tvalid = 1'b1; // send the numerator and denominator values to the Divider Generator
+	    K_next = K_next_in;
+		
             x_curr1 = (1-K_next)*x_next;
             x_curr2 = K_next*y;
             x_curr = x_curr1 + x_curr2; // estimate the current state
@@ -174,7 +188,7 @@ module kalmanf1
             // make the next values the old values for next cycle
             K_pre = K_next;
             e_pre_var = e_next_var;
-            
+     
             
             // Assign the calculated value to the output signal
             x_n = x_next;
@@ -182,9 +196,10 @@ module kalmanf1
             // Store sampled data in memory
             x_data = x_next;
             
+            M_AXIS_OUT_tvalid = 1'b0; // stop data flow to Divider Generator
         end
     end
     
 
-
 endmodule
+
