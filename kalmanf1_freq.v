@@ -71,7 +71,6 @@ module kalmanf1
     // Extract only the 14-bits of ADC data 
     assign  y_measured = S_AXIS_IN_tdata[ADC_WIDTH-1:0];
     
-    // Handling of the state buffer for finding signal transition at the threshold
     always @(posedge clk) 
     begin
         if (~rst) 
@@ -99,16 +98,22 @@ module kalmanf1
         begin
             counter <= 0;
             counter_output <= 0;
-            // counter1024 <= 0;
+            counter1024 <= 0;
             cycle <= 0;
         end
-        else
+        else if (counter1024 == 1024) begin
+            counter_eq_1024 = 1'b1;
+            counter1024 = 1'b0;
+            counter1024_next = 1'b0;     
+        end else
         begin
             counter <= counter_next;
             counter1024 <= counter1024_next;
             counter_output <= counter_output_next;
             cycle <= cycle_next;
+            counter_eq_1024 <= 1'b0;
         end
+        
     end
 
 
@@ -140,16 +145,6 @@ module kalmanf1
     
     reg [1:0] counter_eq_1024;
 
-    always @ (posedge clk) begin
-        if (counter1024 == 1024) begin
-            counter_eq_1024 = 1'b1;
-            counter1024 = 1'b0;
-            counter1024_next = 1'b0;     
-        end else begin
-            counter_eq_1024 = 1'b0;
-        end
-    end
-      
      
     always@(posedge clk) begin
     
