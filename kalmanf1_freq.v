@@ -169,16 +169,49 @@ module kalmanf1ave
     reg [31:0] y, y_init, u; 
     reg [31:0] x_curr, x_curr0, x_curr1, x_curr2, x_next, x_next2, x_next3;
     reg [31:0] e_pre_var, e_next_var, e_next_var1, e_next_var2;
-	reg [31:0] K_pre, K_next, one_K_next_sq, K_next_sq; // kalman gain
-      
+    reg [31:0] K_pre, K_next, one_K_next_sq, K_next_sq; // kalman gain
+    
+  
+//    always @ (posedge clk) begin
+//        if (counter1024 == 1024) begin
+//            counter_eq_1024 = 1'b1;
+//            counter1024 = 1'b0;
+//            counter1024_next = 1'b0;     
+//        end else begin
+//            counter_eq_1024 = 1'b0;
+//        end
+//    end
+    initial begin
+        y_init = 32'b0;
+        x_curr = 32'b0; 
+        x_curr0 = 32'b0;
+        x_curr1 = 32'b0; 
+        x_curr2 = 32'b0; 
+        x_next = 32'b0; 
+        x_next2 = 32'b0; 
+        x_next3 = 32'b0;
+        e_pre_var = 32'b0; 
+        e_next_var = 32'b0; 
+        e_next_var1 = 32'b0; 
+        e_next_var2 = 32'b0;
+        K_pre = 32'b0; 
+        K_next = 32'b0; 
+        one_K_next_sq = 32'b0; 
+        K_next_sq = 32'b0;
+    end
      
     always@(posedge clk) begin
     
         if (counter == 0) begin
                 y_init = y_measured;
 //                x_next1 = phi*x_init;
+        end
+        if (counter == 1) begin
                 x_next2 = k_omega*y_init;
                 x_next3 = oT*x_next2;
+                
+        end
+        if (counter == 2) begin
                 x_next = x_next1 - x_next3; // predict the next state x_n
                 e_pre_var = e_pre_var0; // make sure this is a positive number   
         end
@@ -188,25 +221,41 @@ module kalmanf1ave
             y = y_measured;
             u = -oT*k_omega*y;
             
+        end
+        if (counter1024 == 1) begin
+            
             K_next_num = (phi_sq*e_pre_var + d_var);
             K_next_denom = (phi_sq*e_pre_var + d_var + s_var);
 //            K_next = K_next_num / K_next_denom;
             M_AXIS_OUT_tvalid_kal = 1'b1; // send the numerator and denominator values to the Divider Generator
             K_next = K_next_in;
+            
+        end 
+        if (counter1024 == 2) begin
 		
             x_curr0 = 1-K_next;
             x_curr1 = x_curr0*x_next;
             x_curr2 = K_next*y;
+            
+        end 
+        if (counter1024 == 3) begin
             x_curr = x_curr1 + x_curr2; // estimate the current state
             
             x_next = phi*x_curr + u; // predict the next state
             
+        end 
+        if (counter1024 == 4) begin
             //e_next_var = (1-K_next)*(1-K_next)*(phi*phi*e_pre_var + d_var) + K_next*K_next*s_var;
             one_K_next_sq = (1-K_next)*(1-K_next);
             K_next_sq = K_next*K_next;
+        end
+        if(counter1024 == 5) begin
             e_next_var1 = one_K_next_sq*K_next_num;
             e_next_var2 = K_next_sq*s_var;
             e_next_var = e_next_var1 + e_next_var2;
+            
+        end
+        if (counter1024 == 6) begin
             
             // make the next values the old values for next cycle
             K_pre = K_next;
@@ -225,5 +274,4 @@ module kalmanf1ave
     
 
 endmodule
-
 
