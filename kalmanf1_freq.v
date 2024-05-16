@@ -21,8 +21,30 @@
 //////////////////////////////////////////////////////////////////////////////////
 
 
-module kalmanf1
+module kalmanf1ave
 #(
+//    parameter M_PI = 3.14159265358979323846,
+//    parameter ADC_WIDTH = 14,
+//    parameter AXIS_TDATA_WIDTH = 32,
+//    parameter COUNT_WIDTH = 32,
+//    parameter HIGH_THRESHOLD = -100,
+//    parameter LOW_THRESHOLD = -150,
+//    parameter INTEGER_BITS = 0,       // Number of integer bits for T_s
+//    parameter FRACTIONAL_BITS = 24,   // Number of fractional bits for T_s
+//    parameter x_init = 1e-6,  // initial guess for x_0|0 (units of power)
+//    parameter x0 = 1.2e-6, // initial guess for the current state 0 (units of power)
+//    parameter T_s = 1e-5,  // sampling time (s)=10 microsec
+//    parameter tau = 1e-3, // lock-in rolloff time (1/f)
+//    parameter omega = 6283.185307, // 2*M_PI/tau
+//    parameter oT = 0.06283185307, //omega*T_s
+//    parameter phi = 1.062831853, //1+omega*T_s
+//    parameter phi_sq = 1.129611548, //phi^2
+//    parameter d_var = 9e-4, //(V^2)
+//    parameter o_prime = 628318.5307, // 2pi*f=2pi*100kHz
+//    parameter g_0 = 1,
+//    parameter k_omega = 4.347826087, //o_prime/(g_0*omega) control law
+//    parameter s_var = 1.27407e-5 // process and measurement noise (units of power (V^2))
+    
     parameter M_PI = 34'b11_00100011110101110000101000111101,
     parameter ADC_WIDTH = 14,
     parameter AXIS_TDATA_WIDTH = 32,
@@ -42,9 +64,10 @@ module kalmanf1
     parameter phi_sq = 64'b1_00100001001011100011100011101111110110000000110000010010011111, //phi^2
     parameter d_var = 64'b0_0000000000111010111110110111111010010000111111111001011100100100, //(V^2)
     parameter o_prime = 64'b10011001011001011110_10000111110110111111010010000111111111001011, // 2pi*f=2pi*100kHz
-    parameter g_0 = 'd0023,
-    parameter k_omega = 64'b100_0101100100001011001000010110010001011100010100111001101110010, //o_prime/(g_0*omega) control law
-    parameter s_var = 64'b0_0010000010011101101111101100001001001000000011101000110010001010 // process and measurement noise (units of power (V^2))
+    parameter g_0 = 1'b1,
+    parameter k_omega = 8'b1100100, //o_prime/(g_0*omega) control law
+    parameter s_var = 64'b0_0010000010011101101111101100001001001000000011101000110010001010,
+    parameter x_next1 = 64'b0_0000000000000000000100011101010011010011111110100011100111100001 // process and measurement noise (units of power (V^2))
 )
 (
     (* X_INTERFACE_PARAMETER = "FREQ_HZ 125000000" *)
@@ -54,10 +77,12 @@ module kalmanf1
     input                          rst,
     input [COUNT_WIDTH-1:0]        Ncycles,
     input                          K_next_in,
-    output reg                     M_AXIS_OUT_tvalid,
+    output reg [AXIS_TDATA_WIDTH-1:0]  M_AXIS_OUT_tdata,
+    output                         M_AXIS_OUT_tvalid,
+    output reg                     M_AXIS_OUT_tvalid_kal,
     output reg                     K_next_num,
     output reg                     K_next_denom,
-    output reg [COUNT_WIDTH-1:0]   x_n,  
+//    output reg [COUNT_WIDTH-1:0]   x_n,  
     output reg [15:0]              x_data
 );
     
@@ -66,11 +91,14 @@ module kalmanf1
     reg [COUNT_WIDTH-1:0]          counter=0, counter_next=0, counter1024=0, counter1024_next=0;
     reg [COUNT_WIDTH-1:0]          counter_output=0, counter_output_next=0;
     reg [COUNT_WIDTH-1:0]          cycle=0, cycle_next=0;
+    reg [1:0]                      counter_eq_1024;
     
     
     // Extract only the 14-bits of ADC data 
     assign  y_measured = S_AXIS_IN_tdata[ADC_WIDTH-1:0];
+    assign  M_AXIS_OUT_tvalid = S_AXIS_IN_tvalid;
     
+    // Handling of the state buffer for finding signal transition at the threshold
     always @(posedge clk) 
     begin
         if (~rst) 
@@ -139,20 +167,19 @@ module kalmanf1
     
 
     reg [31:0] y, y_init, u; 
-    reg [31:0] x_curr, x_curr1, x_curr2, x_next, x_next1, x_next2;
+    reg [31:0] x_curr, x_curr0, x_curr1, x_curr2, x_next, x_next2, x_next3;
     reg [31:0] e_pre_var, e_next_var, e_next_var1, e_next_var2;
-    reg [31:0] K_pre, one_K_next_sq, K_next_sq; // kalman gain
-    
-    reg [1:0] counter_eq_1024;
-
+	reg [31:0] K_pre, K_next, one_K_next_sq, K_next_sq; // kalman gain
+      
      
     always@(posedge clk) begin
     
         if (counter == 0) begin
                 y_init = y_measured;
-                x_next1 = phi*x_init;
+//                x_next1 = phi*x_init;
                 x_next2 = k_omega*y_init;
-                x_next = x_next1 - oT*x_next2; // predict the next state x_n
+                x_next3 = oT*x_next2;
+                x_next = x_next1 - x_next3; // predict the next state x_n
                 e_pre_var = e_pre_var0; // make sure this is a positive number   
         end
             
@@ -164,10 +191,11 @@ module kalmanf1
             K_next_num = (phi_sq*e_pre_var + d_var);
             K_next_denom = (phi_sq*e_pre_var + d_var + s_var);
 //            K_next = K_next_num / K_next_denom;
-	    M_AXIS_OUT_tvalid = 1'b1; // send the numerator and denominator values to the Divider Generator
-	    K_next = K_next_in;
+            M_AXIS_OUT_tvalid_kal = 1'b1; // send the numerator and denominator values to the Divider Generator
+            K_next = K_next_in;
 		
-            x_curr1 = (1-K_next)*x_next;
+            x_curr0 = 1-K_next;
+            x_curr1 = x_curr0*x_next;
             x_curr2 = K_next*y;
             x_curr = x_curr1 + x_curr2; // estimate the current state
             
@@ -186,15 +214,16 @@ module kalmanf1
      
             
             // Assign the calculated value to the output signal
-            x_n = x_next;
+            M_AXIS_OUT_tdata = x_next;
             
             // Store sampled data in memory
             x_data = x_next;
             
-            M_AXIS_OUT_tvalid = 1'b0; // stop data flow to Divider Generator
+            M_AXIS_OUT_tvalid_kal = 1'b0; // stop data flow to Divider Generator
         end
     end
     
 
 endmodule
+
 
