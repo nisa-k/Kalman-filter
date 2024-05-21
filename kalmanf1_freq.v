@@ -53,21 +53,21 @@ module kalmanf1ave
     parameter LOW_THRESHOLD = -150,
     parameter INTEGER_BITS = 0,       // Number of integer bits for T_s
     parameter FRACTIONAL_BITS = 24,   // Number of fractional bits for T_s
-    parameter x_init = 32'b0_00000000000000000001000011000110,  // initial guess for x_0|0 (units of power)
-    parameter x0 = 34'b0_0000000000000000000101000010000111, // initial guess for the current state 0 (units of power)
-    parameter e_pre_var0 = 64'b0_0000000000000000001000011000110111101111010000010110101111011011, //x0-x_init, 2*1e-6
-    parameter T_s = 32'b0_00000000000000001010011111000101,  // sampling time (s)=10 microsec
-    parameter tau = 32'b0_00000000010000011000100100110111, // lock-in rolloff time (1/f)
-    parameter omega = 64'b1100010001011_001011110111000001000111100100001011100001001001100, // 2*M_PI/tau
-    parameter oT = 64'b0_0001000000010101101111111001001000010101001011011001110000010100, //omega*T_s
-    parameter phi = 64'b1_000100000001010110111111100100011100100000110110010111000111111, //1+omega*T_s
-    parameter phi_sq = 64'b1_00100001001011100011100011101111110110000000110000010010011111, //phi^2
-    parameter d_var = 64'b0_0000000000111010111110110111111010010000111111111001011100100100, //(V^2)
-    parameter o_prime = 64'b10011001011001011110_10000111110110111111010010000111111111001011, // 2pi*f=2pi*100kHz
+    parameter x_init = 16'b0_00000000000000000001000011000110,  // initial guess for x_0|0 (units of power)
+    parameter x0 = 16'b0_0000000000000000000101000010000111, // initial guess for the current state 0 (units of power)
+    parameter e_pre_var0 = 16'b0_0000000000000000001000011000110111101111010000010110101111011011, //x0-x_init, 2*1e-6
+    parameter T_s = 16'b0_00000000000000001010011111000101,  // sampling time (s)=10 microsec
+    parameter tau = 16'b0_00000000010000011000100100110111, // lock-in rolloff time (1/f)
+    parameter omega = 16'b1100010001011_001011110111000001000111100100001011100001001001100, // 2*M_PI/tau
+    parameter oT = 16'b0_0001000000010101101111111001001000010101001011011001110000010100, //omega*T_s
+    parameter phi = 16'b1_000100000001010110111111100100011100100000110110010111000111111, //1+omega*T_s
+    parameter phi_sq = 16'b1_00100001001011100011100011101111110110000000110000010010011111, //phi^2
+    parameter d_var = 16'b0_0000000000111010111110110111111010010000111111111001011100100100, //(V^2)
+    parameter o_prime = 16'b10011001011001011110_10000111110110111111010010000111111111001011, // 2pi*f=2pi*100kHz
     parameter g_0 = 1'b1,
     parameter k_omega = 8'b1100100, //o_prime/(g_0*omega) control law
-    parameter s_var = 64'b0_0010000010011101101111101100001001001000000011101000110010001010,
-    parameter x_next1 = 64'b0_0000000000000000000100011101010011010011111110100011100111100001 // process and measurement noise (units of power (V^2))
+    parameter s_var = 16'b0_0010000010011101101111101100001001001000000011101000110010001010,
+    parameter x_next1 = 16'b0_0000000000000000000100011101010011010011111110100011100111100001 // process and measurement noise (units of power (V^2))
 )
 (
     (* X_INTERFACE_PARAMETER = "FREQ_HZ 125000000" *)
@@ -82,6 +82,7 @@ module kalmanf1ave
     output reg                     M_AXIS_OUT_tvalid_kal,
     output reg                     K_next_num,
     output reg                     K_next_denom,
+    output reg                     measured,
 //    output reg [COUNT_WIDTH-1:0]   x_n,  
     output reg [15:0]              x_data
 );
@@ -166,10 +167,10 @@ module kalmanf1ave
    end
     
 
-    reg [31:0] y, y_init, u; 
-    reg [31:0] x_curr, x_curr0, x_curr1, x_curr2, x_next, x_next2, x_next3;
-    reg [31:0] e_pre_var, e_next_var, e_next_var1, e_next_var2;
-    reg [31:0] K_pre, K_next, one_K_next_sq, K_next_sq; // kalman gain
+    reg [15:0] y, y_init, u; 
+    reg [15:0] x_curr, x_curr0, x_curr1, x_curr2, x_next, x_next2, x_next3;
+    reg [15:0] e_pre_var, e_next_var, e_next_var1, e_next_var2;
+    reg [15:0] K_pre, K_next, one_K_next_sq, K_next_sq; // kalman gain
     
   
 //    always @ (posedge clk) begin
@@ -198,29 +199,34 @@ module kalmanf1ave
         K_next = 32'b0; 
         one_K_next_sq = 32'b0; 
         K_next_sq = 32'b0;
+        x_data = 32'b0;
+        measured = 16'b0;
     end
      
     always@(posedge clk) begin
     
-        if (counter == 0) begin
+        if (counter == 9) begin
                 y_init = y_measured;
 //                x_next1 = phi*x_init;
+                $display("Time %0t: %d, %d, y_init=%d", $time, counter, counter1024, y_init);
         end
-        if (counter == 1) begin
+        if (counter == 10) begin
                 x_next2 = k_omega*y_init;
                 x_next3 = oT*x_next2;
-                
+                measured = x_next3;
+                $display("Time %0t: %d, %d, x_next2=%d, x_next3=%d", $time, counter, counter1024, x_next2, x_next3);
         end
-        if (counter == 2) begin
+        if (counter == 11) begin
                 x_next = x_next1 - x_next3; // predict the next state x_n
-                e_pre_var = e_pre_var0; // make sure this is a positive number   
+                e_pre_var = e_pre_var0; // make sure this is a positive number
+                $display("Time %0t: %d, %d, x_next=%d, e_pre_var=%d", $time, counter, counter1024, x_next, e_pre_var);   
         end
             
         if (counter_eq_1024) begin             
              
             y = y_measured;
             u = -oT*k_omega*y;
-            
+           // $display("Time %0t: %d, %d, y=%d, u=%d", $time, counter, counter1024, y, u);
         end
         if (counter1024 == 1) begin
             
@@ -229,7 +235,7 @@ module kalmanf1ave
 //            K_next = K_next_num / K_next_denom;
             M_AXIS_OUT_tvalid_kal = 1'b1; // send the numerator and denominator values to the Divider Generator
             K_next = K_next_in;
-            
+            $display("Time %0t: %d, %d, K_next_num=%d, K_next_in=%d, phi_sq=%d, e_pre_var=%d", $time, counter, counter1024, K_next_num, K_next_in, phi_sq, e_pre_var);
         end 
         if (counter1024 == 2) begin
 		
@@ -257,6 +263,7 @@ module kalmanf1ave
         end
         if (counter1024 == 6) begin
             
+            
             // make the next values the old values for next cycle
             K_pre = K_next;
             e_pre_var = e_next_var;
@@ -269,6 +276,8 @@ module kalmanf1ave
             x_data = x_next;
             
             M_AXIS_OUT_tvalid_kal = 1'b0; // stop data flow to Divider Generator
+            
+            
         end
     end
     
