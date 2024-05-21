@@ -39,11 +39,11 @@ module kalmanf1ave
 //    parameter oT = 0.06283185307, //omega*T_s
 //    parameter phi = 1.062831853, //1+omega*T_s
 //    parameter phi_sq = 1.129611548, //phi^2
-//    parameter d_var = 9e-4, //(V^2)
+//    parameter d_var = 1.27407e-5 , //(V^2)
 //    parameter o_prime = 628318.5307, // 2pi*f=2pi*100kHz
 //    parameter g_0 = 1,
 //    parameter k_omega = 4.347826087, //o_prime/(g_0*omega) control law
-//    parameter s_var = 1.27407e-5 // process and measurement noise (units of power (V^2))
+//    parameter s_var = 9e-4 // process and measurement noise (units of power (V^2))
     
     parameter M_PI = 34'b11_00100011110101110000101000111101,
     parameter ADC_WIDTH = 14,
@@ -55,33 +55,40 @@ module kalmanf1ave
     parameter FRACTIONAL_BITS = 24,   // Number of fractional bits for T_s
     parameter x_init = 16'b0_00000000000000000001000011000110,  // initial guess for x_0|0 (units of power)
     parameter x0 = 16'b0_0000000000000000000101000010000111, // initial guess for the current state 0 (units of power)
-    parameter e_pre_var0 = 16'b0_0000000000000000001000011000110111101111010000010110101111011011, //x0-x_init, 2*1e-6
+    parameter e_pre_var0 = 32'b0_0000000000000000001000011000110111101111010000010110101111011011, //x0-x_init, 2*1e-6
     parameter T_s = 16'b0_00000000000000001010011111000101,  // sampling time (s)=10 microsec
     parameter tau = 16'b0_00000000010000011000100100110111, // lock-in rolloff time (1/f)
     parameter omega = 16'b1100010001011_001011110111000001000111100100001011100001001001100, // 2*M_PI/tau
     parameter oT = 16'b0_0001000000010101101111111001001000010101001011011001110000010100, //omega*T_s
     parameter phi = 16'b1_000100000001010110111111100100011100100000110110010111000111111, //1+omega*T_s
     parameter phi_sq = 16'b1_00100001001011100011100011101111110110000000110000010010011111, //phi^2
-    parameter d_var = 16'b0_0000000000111010111110110111111010010000111111111001011100100100, //(V^2)
+    parameter d_var = 16'b0_0010000010011101101111101100001001001000000011101000110010001010, //(V^2)
     parameter o_prime = 16'b10011001011001011110_10000111110110111111010010000111111111001011, // 2pi*f=2pi*100kHz
     parameter g_0 = 1'b1,
     parameter k_omega = 8'b1100100, //o_prime/(g_0*omega) control law
-    parameter s_var = 16'b0_0010000010011101101111101100001001001000000011101000110010001010,
+    parameter s_var = 16'b0_0000000000111010111110110111111010010000111111111001011100100100,
     parameter x_next1 = 16'b0_0000000000000000000100011101010011010011111110100011100111100001 // process and measurement noise (units of power (V^2))
 )
 (
     (* X_INTERFACE_PARAMETER = "FREQ_HZ 125000000" *)
     input [AXIS_TDATA_WIDTH-1:0]   S_AXIS_IN_tdata,
     input                          S_AXIS_IN_tvalid,
+    input                          S_AXIS_IN_tvalid_kal,
+    input                          S_AXIS_IN_tready_kal,
+    input                          S_AXIS_IN_tdata_kal,
     input                          clk,
     input                          rst,
     input [COUNT_WIDTH-1:0]        Ncycles,
-    input                          K_next_in,
+//    input                          K_next_in,
     output reg [AXIS_TDATA_WIDTH-1:0]  M_AXIS_OUT_tdata,
     output                         M_AXIS_OUT_tvalid,
-    output reg                     M_AXIS_OUT_tvalid_kal,
-    output reg                     K_next_num,
-    output reg                     K_next_denom,
+//    output reg                     M_AXIS_OUT_tvalid_kal,
+    output reg [AXIS_TDATA_WIDTH-1:0]  M_AXIS_OUT_DIVISOR_tdata,
+    output reg                     M_AXIS_OUT_DIVISOR_tvalid=0,
+    output reg [AXIS_TDATA_WIDTH-1:0]  M_AXIS_OUT_DIVIDEND_tdata,
+    output reg                     M_AXIS_OUT_DIVIDEND_tvalid=0,
+    reg                     K_next_num,
+    reg                     K_next_denom,
     output reg                     measured,
 //    output reg [COUNT_WIDTH-1:0]   x_n,  
     output reg [15:0]              x_data
@@ -149,6 +156,7 @@ module kalmanf1ave
     always @* // logic for counter, counter_output, and cycle buffer
     begin
         counter_next = counter + 1; // increment on each clock cycle
+//        if (counter > 1024) begin
         counter1024_next = counter1024 + 1;
         counter_output_next = counter_output;
         cycle_next = cycle;
@@ -170,18 +178,9 @@ module kalmanf1ave
     reg [15:0] y, y_init, u; 
     reg [15:0] x_curr, x_curr0, x_curr1, x_curr2, x_next, x_next2, x_next3;
     reg [15:0] e_pre_var, e_next_var, e_next_var1, e_next_var2;
-    reg [15:0] K_pre, K_next, one_K_next_sq, K_next_sq; // kalman gain
+    reg [31:0] K_pre, K_next, one_K_next_sq, K_next_sq; // kalman gain
     
   
-//    always @ (posedge clk) begin
-//        if (counter1024 == 1024) begin
-//            counter_eq_1024 = 1'b1;
-//            counter1024 = 1'b0;
-//            counter1024_next = 1'b0;     
-//        end else begin
-//            counter_eq_1024 = 1'b0;
-//        end
-//    end
     initial begin
         y_init = 32'b0;
         x_curr = 32'b0; 
@@ -230,12 +229,22 @@ module kalmanf1ave
         end
         if (counter1024 == 1) begin
             
-            K_next_num = (phi_sq*e_pre_var + d_var);
-            K_next_denom = (phi_sq*e_pre_var + d_var + s_var);
+            K_next_num = phi_sq*e_pre_var + d_var;
+            K_next_denom = phi_sq*e_pre_var + d_var + s_var;
 //            K_next = K_next_num / K_next_denom;
-            M_AXIS_OUT_tvalid_kal = 1'b1; // send the numerator and denominator values to the Divider Generator
-            K_next = K_next_in;
-            $display("Time %0t: %d, %d, K_next_num=%d, K_next_in=%d, phi_sq=%d, e_pre_var=%d", $time, counter, counter1024, K_next_num, K_next_in, phi_sq, e_pre_var);
+            $display("K_next_num=%d, K_next_denom=%d", K_next_num, K_next_denom);
+            M_AXIS_OUT_DIVISOR_tdata = K_next_denom;
+            M_AXIS_OUT_DIVIDEND_tdata = K_next_num;
+            M_AXIS_OUT_DIVISOR_tvalid = 1'b1; // send the numerator and denominator values to the Divider Generator
+            M_AXIS_OUT_DIVIDEND_tvalid = 1'b1;
+            $display("Time %0t: %d, %d, e_pre_var=%d, phi_sq=%d, d_var=%d, K_next_num=%d S_AXIS_IN_tdata_kal=%d, M_AXIS_OUT_DIVISOR_tdata=%d, M_AXIS_OUT_DIVIDEND_tdata=%d", $time, counter, counter1024, e_pre_var, phi_sq, d_var, K_next_num, S_AXIS_IN_tdata_kal, M_AXIS_OUT_DIVISOR_tdata, M_AXIS_OUT_DIVIDEND_tdata);
+
+            
+//            if (S_AXIS_IN_tready_kal && S_AXIS_IN_tvalid_kal) begin
+            K_next = S_AXIS_IN_tdata_kal;
+//            K_next = 16'd80;
+//                $display("Time %0t: %d, %d, K_next_num=%d, S_AXIS_IN_tdata_kal=%d, phi_sq=%d, e_pre_var=%d", $time, counter, counter1024, K_next_num, S_AXIS_IN_tdata_kal, phi_sq, e_pre_var);
+//            end
         end 
         if (counter1024 == 2) begin
 		
@@ -275,7 +284,9 @@ module kalmanf1ave
             // Store sampled data in memory
             x_data = x_next;
             
-            M_AXIS_OUT_tvalid_kal = 1'b0; // stop data flow to Divider Generator
+            M_AXIS_OUT_DIVISOR_tvalid = 1'b0; // stop data flow to Divider Generator
+            M_AXIS_OUT_DIVIDEND_tvalid = 1'b0;
+//            M_AXIS_OUT_tvalid_kal = 1'b0; // stop data flow to Divider Generator
             
             
         end
