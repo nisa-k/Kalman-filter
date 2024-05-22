@@ -147,20 +147,28 @@ module test_bench
   wire [15:0]x_dat;
 
   reg clk = 0;
-  reg [13:0] adc_data;
+  reg [13:0] adc_data; // Assuming 14-bit ADC data width
   reg adc_valid = 1'b0; // Start with invalid data
   always #100 clk = ~clk;
   initial begin
-        // Reset
-        #50;
-        adc_valid = 1'b1; // Start providing valid data
-        
-        // Simulate ADC data
-        adc_data = 14'h123; 
-        #100; // Simulate for some time
-
-    end
-
+    // Reset
+    #50;
+    adc_valid = 1'b1; // Start providing valid data
+    
+    // Simulate ADC data
+    adc_data = 14'h123; // Example ADC data
+    $display("Time %0t: adc_data = %h", $time, adc_data); // Print initial data
+    #1000000000; // Simulate for some time
+    adc_valid = 1'b0;
+    adc_data = 14'h423;
+    #50000000;
+    adc_valid = 1'b1;
+    // Change adc_data to 14'h223
+    adc_data = 14'h223; // New ADC data
+    $display("Time %0t: adc_data = %h", $time, adc_data); // Print new data
+    #100; // Simulate for some more time
+  end
+   
   system system_i
        (.DDR_addr(DDR_addr),
         .DDR_ba(DDR_ba),
