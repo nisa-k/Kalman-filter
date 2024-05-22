@@ -209,70 +209,73 @@ module kalmanf1ave
 //                x_next1 = phi*x_init;
                 $display("Time %0t: %d, %d, y_init=%d", $time, counter, counter1024, y_init);
         end
-        if (counter == 10) begin
+        else if (counter == 10) begin
                 x_next2 = k_omega*y_init;
                 x_next3 = oT*x_next2;
                 measured = x_next3;
                 $display("Time %0t: %d, %d, x_next2=%d, x_next3=%d", $time, counter, counter1024, x_next2, x_next3);
         end
-        if (counter == 11) begin
+        else if (counter == 11) begin
                 x_next = x_next1 - x_next3; // predict the next state x_n
                 e_pre_var = e_pre_var0; // make sure this is a positive number
+                can_go = 1;
                 $display("Time %0t: %d, %d, x_next=%d, e_pre_var=%d", $time, counter, counter1024, x_next, e_pre_var);   
         end
             
-        if (counter_eq_1024) begin             
+        else if (counter_eq_1024 && can_go == 1) begin             
              
             y = y_measured;
             u = -oT*k_omega*y;
-           // $display("Time %0t: %d, %d, y=%d, u=%d", $time, counter, counter1024, y, u);
+            $display("Time %0t: %d, %d, y=%d, u=%d", $time, counter, counter1024, y, u);
         end
-        if (counter1024 == 1) begin
+        else if (counter1024 == 1 && can_go == 1) begin
             
             K_next_num = phi_sq*e_pre_var + d_var;
             K_next_denom = phi_sq*e_pre_var + d_var + s_var;
 //            K_next = K_next_num / K_next_denom;
-            $display("K_next_num=%d, K_next_denom=%d", K_next_num, K_next_denom);
+//            $display("K_next_num=%d, K_next_denom=%d", K_next_num, K_next_denom);
             M_AXIS_OUT_DIVISOR_tdata = K_next_denom;
             M_AXIS_OUT_DIVIDEND_tdata = K_next_num;
             M_AXIS_OUT_DIVISOR_tvalid = 1'b1; // send the numerator and denominator values to the Divider Generator
             M_AXIS_OUT_DIVIDEND_tvalid = 1'b1;
-            $display("Time %0t: %d, %d, e_pre_var=%d, phi_sq=%d, d_var=%d, K_next_num=%d S_AXIS_IN_tdata_kal=%d, M_AXIS_OUT_DIVISOR_tdata=%d, M_AXIS_OUT_DIVIDEND_tdata=%d", $time, counter, counter1024, e_pre_var, phi_sq, d_var, K_next_num, S_AXIS_IN_tdata_kal, M_AXIS_OUT_DIVISOR_tdata, M_AXIS_OUT_DIVIDEND_tdata);
-
+            $display("Time %0t: %d, %d, e_pre_var=%d, K_next_num=%d S_AXIS_IN_tdata_kal=%d, M_AXIS_OUT_DIVISOR_tdata=%d, M_AXIS_OUT_DIVIDEND_tdata=%d", $time, counter, counter1024, e_pre_var, K_next_num, S_AXIS_IN_tdata_kal, M_AXIS_OUT_DIVISOR_tdata, M_AXIS_OUT_DIVIDEND_tdata);
+            can_go = 0;
             
-//            if (S_AXIS_IN_tready_kal && S_AXIS_IN_tvalid_kal) begin
-            K_next = S_AXIS_IN_tdata_kal;
+            if (S_AXIS_IN_tready_kal && S_AXIS_IN_tvalid_kal) begin
+                K_next = S_AXIS_IN_tdata_kal;
+                can_go = 1'b1;
+            
 //            K_next = 16'd80;
 //                $display("Time %0t: %d, %d, K_next_num=%d, S_AXIS_IN_tdata_kal=%d, phi_sq=%d, e_pre_var=%d", $time, counter, counter1024, K_next_num, S_AXIS_IN_tdata_kal, phi_sq, e_pre_var);
-//            end
+            end
         end 
-        if (counter1024 == 2) begin
+        else if (counter1024 == 500 && can_go == 1) begin
 		
+		    K_next = S_AXIS_IN_tdata_kal;
             x_curr0 = 1-K_next;
             x_curr1 = x_curr0*x_next;
             x_curr2 = K_next*y;
             
         end 
-        if (counter1024 == 3) begin
+        else if (counter1024 == 501 && can_go == 1) begin
             x_curr = x_curr1 + x_curr2; // estimate the current state
             
             x_next = phi*x_curr + u; // predict the next state
             
         end 
-        if (counter1024 == 4) begin
+        else if (counter1024 == 502 && can_go == 1) begin
             //e_next_var = (1-K_next)*(1-K_next)*(phi*phi*e_pre_var + d_var) + K_next*K_next*s_var;
             one_K_next_sq = (1-K_next)*(1-K_next);
             K_next_sq = K_next*K_next;
         end
-        if(counter1024 == 5) begin
+        else if(counter1024 == 503 && can_go == 1) begin
             e_next_var1 = one_K_next_sq*K_next_num;
             e_next_var2 = K_next_sq*s_var;
             e_next_var = e_next_var1 + e_next_var2;
             
         end
-        if (counter1024 == 6) begin
-            
-            
+        else if (counter1024 == 504 && can_go == 1) begin
+
             // make the next values the old values for next cycle
             K_pre = K_next;
             e_pre_var = e_next_var;
@@ -287,7 +290,7 @@ module kalmanf1ave
             M_AXIS_OUT_DIVISOR_tvalid = 1'b0; // stop data flow to Divider Generator
             M_AXIS_OUT_DIVIDEND_tvalid = 1'b0;
 //            M_AXIS_OUT_tvalid_kal = 1'b0; // stop data flow to Divider Generator
-            
+            can_go = 0;
             
         end
     end
