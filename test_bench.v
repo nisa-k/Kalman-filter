@@ -62,7 +62,6 @@ module test_bench
     exp_n_tri_io,
     exp_p_tri_io,
     led_o,
-//    k_gain,
     x_dat);
   inout [14:0]DDR_addr;
   inout [2:0]DDR_ba;
@@ -105,7 +104,6 @@ module test_bench
   inout [7:0]exp_n_tri_io;
   inout [7:0]exp_p_tri_io;
   output [7:0]led_o;
-//  output k_gain;
   output [15:0]x_dat;
 
   wire [14:0]DDR_addr;
@@ -149,47 +147,47 @@ module test_bench
   wire [7:0]exp_n_tri_io;
   wire [7:0]exp_p_tri_io;
   wire [7:0]led_o;
-//  wire k_gain;
   wire [15:0]x_dat;
 
-//  reg clk = 0;
-//  reg [13:0] adc_data; // Assuming 14-bit ADC data width
-//  reg adc_valid = 1'b1; // Start with invalid data
-//  always #100 clk = ~clk;
-//  initial begin
-//    // Reset
-//    #50;
-//    adc_valid = 1'b1; // Start providing valid data
+  // Simulate constant data
+  reg clk = 0;
+  reg [13:0] adc_data; // Assuming 14-bit ADC data width
+  reg adc_valid = 1'b1; // Start with invalid data
+  always #100 clk = ~clk;
+  initial begin
+    // Reset
+    #50;
+    adc_valid = 1'b1; // Start providing valid data
     
-//    // Simulate ADC data
-//    adc_data = 14'h123; // Example ADC data
-////    $display("Time %0t: adc_data = %h", $time, adc_data); // Print initial data
-//    #1000000000; // Simulate for some time
-//    adc_valid = 1'b0;
-//    adc_data = 14'h423;
-//    #50000000;
-//    adc_valid = 1'b1;
-//    // Change adc_data to 14'h223
-//    adc_data = 14'h223; // New ADC data
-////    $display("Time %0t: adc_data = %h", $time, adc_data); // Print new data
-//    #100; // Simulate for some more time
-//  end
+    // Simulate ADC data
+    adc_data = 14'h123; // Example ADC data
+    #1000000000; // Simulate for some time
+    adc_valid = 1'b0;
+    adc_data = 14'h423;
+    #50000000;
+    adc_valid = 1'b1;
+    // Change adc_data to 14'h223
+    adc_data = 14'h223; // New ADC data
+    #100; // Simulate for some more time
+  end
+  
+  // Simulate noisy sine wave
 
-    // Inputs
-    reg Clk;
+//    // Inputs
+//    reg Clk;
 
-    // Outputs
-    //reg [7:0] data_out;
+//    // Outputs
+//    wire [7:0] data_out;
 
-    // Instantiate the Unit Under Test (UUT)
-    sine_wave uut (
-        .Clk(Clk), 
-        .data_out(data_out)
-    );
+//    // Instantiate the Unit Under Test (UUT)
+//    sine_wave uut (
+//        .Clk(Clk), 
+//        .data_out(data_out)
+//    );
 
-    //Generate a clock with 10 ns clock period.
-    initial Clk = 0;
-    always #5 Clk = ~Clk;
+//    //Generate a clock with 10 ns clock period.
+//    initial Clk = 0;
+//    always #5 Clk = ~Clk;
 
   system system_i
        (.DDR_addr(DDR_addr),
@@ -213,11 +211,11 @@ module test_bench
         .FIXED_IO_ps_clk(FIXED_IO_ps_clk),
         .FIXED_IO_ps_porb(FIXED_IO_ps_porb),
         .FIXED_IO_ps_srstb(FIXED_IO_ps_srstb),
-        .adc_clk_n_i(Clk),
-        .adc_clk_p_i(~Clk),
+        .adc_clk_n_i(clk), // feed the clock negative edge
+        .adc_clk_p_i(~clk), // feed the clock positive edge
         .adc_csn_o(adc_csn_o),
-        .adc_dat_a_i(data_out),
-        .adc_dat_b_i(data_out),
+        .adc_dat_a_i(adc_data), // feed the data. In case of sine wave, can feed same data to both adc_dat_a_i and adc_dat_b_i
+        .adc_dat_b_i(adc_valid), 
         .adc_enc_n_o(adc_enc_n_o),
         .adc_enc_p_o(adc_enc_p_o),
         .dac_clk_o(dac_clk_o),
@@ -233,6 +231,7 @@ module test_bench
         .exp_n_tri_io(exp_n_tri_io),
         .exp_p_tri_io(exp_p_tri_io),
         .led_o(led_o),
-//        .k_gain(k_gain),
         .x_dat(x_dat));
 endmodule
+
+
