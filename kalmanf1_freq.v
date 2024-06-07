@@ -23,6 +23,7 @@
 
 module kalmanf1ave
 #(
+// parameters in decimal
 //    parameter M_PI = 3.14159265358979323846,
 //    parameter ADC_WIDTH = 14,
 //    parameter AXIS_TDATA_WIDTH = 32,
@@ -45,6 +46,7 @@ module kalmanf1ave
 //    parameter k_omega = 4.347826087, //o_prime/(g_0*omega) control law
 //    parameter s_var = 9e-4 // process and measurement noise (units of power (V^2))
     
+    // parameters in binary. These can be made more precise by inspecting the ideal bit-width of the parameters
     parameter M_PI = 34'b11_00100011110101110000101000111101,
     parameter ADC_WIDTH = 14,
     parameter AXIS_TDATA_WIDTH = 32,
@@ -71,26 +73,22 @@ module kalmanf1ave
 )
 (
     (* X_INTERFACE_PARAMETER = "FREQ_HZ 125000000" *)
-    input [AXIS_TDATA_WIDTH-1:0]   S_AXIS_IN_tdata,
-    input                          S_AXIS_IN_tvalid,
-    input                          S_AXIS_IN_tvalid_kal,
-    input                          S_AXIS_IN_tready_kal,
-    input                          S_AXIS_IN_tdata_kal,
+    input wire [AXIS_TDATA_WIDTH-1:0]   S_AXIS_IN_tdata, // data input for measurements y
+    input wire                     S_AXIS_IN_tvalid, 
+    input                          S_AXIS_IN_kal_tvalid, // data input for Kalman gain
+    output reg                     S_AXIS_IN_kal_tready,
+    input                          S_AXIS_IN_kal_tdata,
     input                          clk,
     input                          rst,
     input [COUNT_WIDTH-1:0]        Ncycles,
-//    input                          K_next_in,
-    output reg [AXIS_TDATA_WIDTH-1:0]  M_AXIS_OUT_tdata,
+    output reg [AXIS_TDATA_WIDTH-1:0]  M_AXIS_OUT_tdata, // data output. best estimate
     output                         M_AXIS_OUT_tvalid,
-//    output reg                     M_AXIS_OUT_tvalid_kal,
-    output reg [AXIS_TDATA_WIDTH-1:0]  M_AXIS_OUT_DIVISOR_tdata,
+    input                         M_AXIS_OUT_tready,
+    output reg [AXIS_TDATA_WIDTH-1:0]  M_AXIS_OUT_DIVISOR_tdata=0,
     output reg                     M_AXIS_OUT_DIVISOR_tvalid=0,
-    output reg [AXIS_TDATA_WIDTH-1:0]  M_AXIS_OUT_DIVIDEND_tdata,
+    output reg [AXIS_TDATA_WIDTH-1:0]  M_AXIS_OUT_DIVIDEND_tdata=0,
     output reg                     M_AXIS_OUT_DIVIDEND_tvalid=0,
-    reg                     K_next_num,
-    reg                     K_next_denom,
     output reg                     measured,
-//    output reg [COUNT_WIDTH-1:0]   x_n,  
     output reg [15:0]              x_data
 );
     
@@ -156,7 +154,6 @@ module kalmanf1ave
     always @* // logic for counter, counter_output, and cycle buffer
     begin
         counter_next = counter + 1; // increment on each clock cycle
-//        if (counter > 1024) begin
         counter1024_next = counter1024 + 1;
         counter_output_next = counter_output;
         cycle_next = cycle;
@@ -173,14 +170,14 @@ module kalmanf1ave
             end
         end
    end
-    
-
+ 
+    // regs for variables   
     reg [15:0] y, y_init, u; 
     reg [15:0] x_curr, x_curr0, x_curr1, x_curr2, x_next, x_next2, x_next3;
     reg [15:0] e_pre_var, e_next_var, e_next_var1, e_next_var2;
-    reg [31:0] K_pre, K_next, one_K_next_sq, K_next_sq; // kalman gain
+    reg [31:0] K_pre, K_next, K_next_num, K_next_denom, one_K_next_sq, K_next_sq; // kalman gain
     
-  
+    // initial values for simulation. valid for the first cycle
     initial begin
         y_init = 32'b0;
         x_curr = 32'b0; 
@@ -202,79 +199,72 @@ module kalmanf1ave
         measured = 16'b0;
     end
      
+    // start calculations
     always@(posedge clk) begin
     
         if (counter == 9) begin
                 y_init = y_measured;
-//                x_next1 = phi*x_init;
-                $display("Time %0t: %d, %d, y_init=%d", $time, counter, counter1024, y_init);
+                $display("Time %0t: %d, %d, y_init=%d, S_AXIS_IN_tdata=%d", $time, counter, counter1024, y_init, S_AXIS_IN_tdata);
         end
         else if (counter == 10) begin
                 x_next2 = k_omega*y_init;
                 x_next3 = oT*x_next2;
                 measured = x_next3;
-                $display("Time %0t: %d, %d, x_next2=%d, x_next3=%d", $time, counter, counter1024, x_next2, x_next3);
+                //$display("Time %0t: %d, %d, x_next2=%d, x_next3=%d", $time, counter, counter1024, x_next2, x_next3);
         end
         else if (counter == 11) begin
                 x_next = x_next1 - x_next3; // predict the next state x_n
-                e_pre_var = e_pre_var0; // make sure this is a positive number
-                can_go = 1;
-                $display("Time %0t: %d, %d, x_next=%d, e_pre_var=%d", $time, counter, counter1024, x_next, e_pre_var);   
+                e_pre_var = e_pre_var0; 
+                //$display("Time %0t: %d, %d, x_next=%d, e_pre_var=%d", $time, counter, counter1024, x_next, e_pre_var);   
         end
             
-        else if (counter_eq_1024 && can_go == 1) begin             
-             
+        else if (counter_eq_1024) begin             
+            
             y = y_measured;
             u = -oT*k_omega*y;
-            $display("Time %0t: %d, %d, y=%d, u=%d", $time, counter, counter1024, y, u);
+            $display("Time %0t: %d, %d, y=%d", $time, counter, counter1024, y);
         end
-        else if (counter1024 == 1 && can_go == 1) begin
+        else if (counter1024 == 1) begin
             
             K_next_num = phi_sq*e_pre_var + d_var;
             K_next_denom = phi_sq*e_pre_var + d_var + s_var;
 //            K_next = K_next_num / K_next_denom;
 //            $display("K_next_num=%d, K_next_denom=%d", K_next_num, K_next_denom);
+            
             M_AXIS_OUT_DIVISOR_tdata = K_next_denom;
             M_AXIS_OUT_DIVIDEND_tdata = K_next_num;
             M_AXIS_OUT_DIVISOR_tvalid = 1'b1; // send the numerator and denominator values to the Divider Generator
             M_AXIS_OUT_DIVIDEND_tvalid = 1'b1;
-            $display("Time %0t: %d, %d, e_pre_var=%d, K_next_num=%d S_AXIS_IN_tdata_kal=%d, M_AXIS_OUT_DIVISOR_tdata=%d, M_AXIS_OUT_DIVIDEND_tdata=%d", $time, counter, counter1024, e_pre_var, K_next_num, S_AXIS_IN_tdata_kal, M_AXIS_OUT_DIVISOR_tdata, M_AXIS_OUT_DIVIDEND_tdata);
-            can_go = 0;
+            S_AXIS_IN_kal_tready = 1'b1;
             
-            if (S_AXIS_IN_tready_kal && S_AXIS_IN_tvalid_kal) begin
-                K_next = S_AXIS_IN_tdata_kal;
-                can_go = 1'b1;
-            
-//            K_next = 16'd80;
-//                $display("Time %0t: %d, %d, K_next_num=%d, S_AXIS_IN_tdata_kal=%d, phi_sq=%d, e_pre_var=%d", $time, counter, counter1024, K_next_num, S_AXIS_IN_tdata_kal, phi_sq, e_pre_var);
-            end
+          
         end 
-        else if (counter1024 == 500 && can_go == 1) begin
-		
-		    K_next = S_AXIS_IN_tdata_kal;
+        else if (counter1024 == 3) begin
+		   // $display("Time %0t: %d, %d, e_pre_var=%d, S_AXIS_IN_kal_tdata=%d, M_AXIS_OUT_DIVISOR_tdata=%d, M_AXIS_OUT_DIVIDEND_tdata=%d", $time, counter, counter1024, e_pre_var, S_AXIS_IN_kal_tdata, M_AXIS_OUT_DIVISOR_tdata, M_AXIS_OUT_DIVIDEND_tdata);
+		    K_next = S_AXIS_IN_kal_tdata;
             x_curr0 = 1-K_next;
             x_curr1 = x_curr0*x_next;
             x_curr2 = K_next*y;
             
         end 
-        else if (counter1024 == 501 && can_go == 1) begin
+        else if (counter1024 == 4) begin
             x_curr = x_curr1 + x_curr2; // estimate the current state
             
             x_next = phi*x_curr + u; // predict the next state
             
         end 
-        else if (counter1024 == 502 && can_go == 1) begin
+        else if (counter1024 == 5) begin
             //e_next_var = (1-K_next)*(1-K_next)*(phi*phi*e_pre_var + d_var) + K_next*K_next*s_var;
             one_K_next_sq = (1-K_next)*(1-K_next);
             K_next_sq = K_next*K_next;
         end
-        else if(counter1024 == 503 && can_go == 1) begin
+        else if(counter1024 == 6) begin
             e_next_var1 = one_K_next_sq*K_next_num;
             e_next_var2 = K_next_sq*s_var;
             e_next_var = e_next_var1 + e_next_var2;
             
         end
-        else if (counter1024 == 504 && can_go == 1) begin
+        else if (counter1024 == 7) begin
 
             // make the next values the old values for next cycle
             K_pre = K_next;
@@ -286,15 +276,14 @@ module kalmanf1ave
             
             // Store sampled data in memory
             x_data = x_next;
-            
+            $display("Time %0t: %d, %d, x_next=%d", $time, counter, counter1024, x_next); 
             M_AXIS_OUT_DIVISOR_tvalid = 1'b0; // stop data flow to Divider Generator
             M_AXIS_OUT_DIVIDEND_tvalid = 1'b0;
-//            M_AXIS_OUT_tvalid_kal = 1'b0; // stop data flow to Divider Generator
-            can_go = 0;
             
         end
     end
     
 
 endmodule
+
 
